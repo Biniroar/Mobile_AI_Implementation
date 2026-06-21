@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>손글씨 숫자 인식 AI</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+      background: #0f0f0f;
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      letter-spacing: -0.3px;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 28px;
+    }
+
+    /* 이미지 미리보기 */
+    #preview-box {
+      width: 280px;
+      height: 280px;
+      border-radius: 16px;
+      background: #1a1a1a;
+      border: 2px solid #2a2a2a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      margin-bottom: 20px;
+      position: relative;
+    }
+    #preview-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    #placeholder-text {
+      color: #444;
+      font-size: 14px;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    /* 버튼들 */
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      width: 100%;
+      max-width: 320px;
+    }
+    button {
+      flex: 1;
+      padding: 14px 10px;
+      border-radius: 12px;
+      border: none;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button:active { opacity: 0.7; }
+    #btn-camera {
+      background: #007AFF;
+      color: #fff;
+    }
+    #btn-gallery {
+      background: #2a2a2a;
+      color: #ccc;
+      font-size: 13px;
+    }
+
+    /* 색반전 토글 */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 28px;
+      width: 100%;
+      max-width: 320px;
+    }
+    .toggle-label {
+      font-size: 13px;
+      color: #999;
+      flex: 1;
+    }
+    .toggle {
+      position: relative;
+      width: 44px;
+      height: 26px;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0;
+      background: #3a3a3a;
+      border-radius: 26px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .slider:before {
+      content: '';
+      position: absolute;
+      left: 3px; top: 3px;
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform 0.2s;
+    }
+    .toggle input:checked + .slider { background: #007AFF; }
+    .toggle input:checked + .slider:before { transform: translateX(18px); }
+
+    /* 결과 카드 */
+    #result-card {
+      width: 100%;
+      max-width: 320px;
+      background: #1a1a1a;
+      border-radius: 16px;
+      padding: 20px;
+      display: none;
+    }
+    #result-card.visible { display: block; }
+    .result-digit {
+      font-size: 72px;
+      font-weight: 800;
+      text-align: center;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .result-label {
+      text-align: center;
+      color: #888;
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .bar-digit {
+      width: 14px;
+      font-size: 13px;
+      color: #888;
+      text-align: right;
+    }
+    .bar-bg {
+      flex: 1;
+      height: 8px;
+      background: #2a2a2a;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: #007AFF;
+      transition: width 0.4s ease;
+    }
+    .bar-fill.top { background: #34C759; }
+    .bar-pct {
+      width: 38px;
+      font-size: 12px;
+      color: #666;
+      text-align: right;
+    }
+
+    /* 상태 */
+    #status {
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 12px;
+      min-height: 18px;
+    }
+
+    /* 히든 요소 */
+    #file-input { display: none; }
+    canvas { display: none; }
+  </style>
+</head>
+<body>
+
+<h1>✍️ 손글씨 숫자 인식</h1>
+<p class="subtitle">MNIST CNN · TensorFlow.js · 온디바이스 AI</p>
+
+<div id="preview-box">
+  <div id="placeholder-text">📷 사진을 찍거나<br>갤러리에서 선택하세요</div>
+  <img id="preview-img" style="display:none;" />
+</div>
+
+<p id="status">모델 로딩 중...</p>
+
+<div class="btn-row">
+  <button id="btn-camera">📷 카메라</button>
+  <button id="btn-gallery">🖼️ 갤러리</button>
+</div>
+
+<div class="toggle-row">
+  <span class="toggle-label">흰 종이 + 검은 펜 (색반전 켜기)</span>
+  <label class="toggle">
+    <input type="checkbox" id="invert-toggle" checked>
+    <span class="slider"></span>
+  </label>
+</div>
+
+<div id="result-card">
+  <div class="result-digit" id="result-digit">?</div>
+  <div class="result-label" id="result-label">예측 결과</div>
+  <div id="bars"></div>
+</div>
+
+<input type="file" id="file-input" accept="image/*" capture="environment">
+<canvas id="canvas"></canvas>
+
+<script>
+const MEAN = 0.1307;
+const STD  = 0.3081;
+
+let model = null;
+let lastImageEl = null;
+
+// 모델 로드
+(async () => {
+  try {
+    model = await tf.loadLayersModel('model/model.json');
+    document.getElementById('status').textContent = '✅ 모델 로드 완료 · 사진을 찍어주세요';
+  } catch(e) {
+    document.getElementById('status').textContent = '❌ 모델 로드 실패 · model/ 폴더 확인';
+    console.error(e);
+  }
+})();
+
+// 카메라 버튼
+document.getElementById('btn-camera').addEventListener('click', () => {
+  const fi = document.getElementById('file-input');
+  fi.removeAttribute('capture');
+  fi.setAttribute('capture', 'environment');
+  fi.click();
+});
+
+// 갤러리 버튼
+document.getElementById('btn-gallery').addEventListener('click', () => {
+  const fi = document.getElementById('file-input');
+  fi.removeAttribute('capture');
+  fi.click();
+});
+
+// iOS Safari 등 일부 브라우저/버전에서 canvas.drawImage가 사진의 EXIF 방향(가로/세로 회전)
+// 정보를 무시하는 경우가 있어서, 직접 읽어서 보정해줌. 이걸 안 하면 세로로 찍은 "1"이
+// 가로로 누운 채로 처리되는 등 완전히 틀어진 모양으로 인식될 수 있음.
+function getExifOrientation(arrayBuffer) {
+  const view = new DataView(arrayBuffer);
+  if (view.byteLength < 4 || view.getUint16(0, false) !== 0xFFD8) return 1; // JPEG 아님
+  let offset = 2;
+  while (offset < view.byteLength - 1) {
+    const marker = view.getUint16(offset, false);
+    offset += 2;
+    if (marker === 0xFFE1) {
+      if (view.getUint32(offset + 2, false) !== 0x45786966) return 1; // "Exif"
+      const tiffOffset = offset + 8;
+      const little = view.getUint16(tiffOffset, false) === 0x4949;
+      const firstIFDOffset = view.getUint32(tiffOffset + 4, little);
+      const dirStart = tiffOffset + firstIFDOffset;
+      if (dirStart + 2 > view.byteLength) return 1;
+      const entries = view.getUint16(dirStart, little);
+      for (let i = 0; i < entries; i++) {
+        const entryOffset = dirStart + 2 + i * 12;
+        if (entryOffset + 12 > view.byteLength) break;
+        if (view.getUint16(entryOffset, little) === 0x0112) {
+          return view.getUint16(entryOffset + 8, little);
+        }
+      }
+      return 1;
+    } else if ((marker & 0xFF00) !== 0xFF00) {
+      break;
+    } else {
+      offset += view.getUint16(offset, false);
+    }
+  }
+  return 1;
+}
+
+// EXIF orientation 값에 맞게 회전/反전된 새 캔버스를 만들어 반환.
+// 이후 모든 처리(탐지+최종 크롭)는 이 "바로 보이는 방향"의 캔버스를 기준으로 함.
+function createOrientedCanvas(imgEl, orientation) {
+  const iw = imgEl.naturalWidth || imgEl.width;
+  const ih = imgEl.naturalHeight || imgEl.height;
+  const swapped = orientation >= 5 && orientation <= 8;
+  const canvas = document.createElement('canvas');
+  canvas.width = swapped ? ih : iw;
+  canvas.height = swapped ? iw : ih;
+  const ctx = canvas.getContext('2d');
+  switch (orientation) {
+    case 2: ctx.transform(-1, 0, 0, 1, iw, 0); break;
+    case 3: ctx.transform(-1, 0, 0, -1, iw, ih); break;
+    case 4: ctx.transform(1, 0, 0, -1, 0, ih); break;
+    case 5: ctx.transform(0, 1, 1, 0, 0, 0); break;
+    case 6: ctx.transform(0, 1, -1, 0, ih, 0); break;
+    case 7: ctx.transform(0, -1, -1, 0, ih, iw); break;
+    case 8: ctx.transform(0, -1, 1, 0, 0, iw); break;
+    default: break; // 1 또는 알 수 없음: 회전 불필요
+  }
+  ctx.drawImage(imgEl, 0, 0, iw, ih);
+  return canvas;
+}
+
+// 파일 선택
+document.getElementById('file-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  // 1) 원본 바이트를 따로 읽어서 EXIF 방향 정보 확인
+  const exifReader = new FileReader();
+  exifReader.onload = (exifEv) => {
+    const orientation = getExifOrientation(exifEv.target.result);
+
+    // 2) 화면 표시/디코딩용 DataURL도 읽기
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        // 미리보기 표시
+        const previewImg = document.getElementById('preview-img');
+        previewImg.src = ev.target.result;
+        previewImg.style.display = 'block';
+        document.getElementById('placeholder-text').style.display = 'none';
+
+        // 방향 보정된 캔버스를 만들어서 이후 모든 처리에 사용
+        const oriented = createOrientedCanvas(img, orientation);
+        lastImageEl = oriented;
+        runInference(oriented);
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+  exifReader.readAsArrayBuffer(file);
+
+  e.target.value = '';
+});
+
+// 색반전 토글 변경 시 재추론
+document.getElementById('invert-toggle').addEventListener('change', () => {
+  if (lastImageEl) runInference(lastImageEl);
+});
+
+// 사진 전체에서 숫자가 있는 영역만 자동으로 찾아 잘라내고(바운딩박스),
+// MNIST 스타일(28x28 안에 20x20 크기로 중앙 정렬)로 맞춰주는 전처리.
+// 사진을 통째로 28x28로 욱여넣으면 숫자가 너무 작아져서 인식이 안 되기 때문에 필요함.
+//
+// 1) 작은 해상도(최대 400px)로 줄여서 "글씨 영역"만 빠르게 탐지
+// 2) 그림자/조명 불균일에 영향 안 받도록, 전체 배경색 하나가 아니라
+//    각 픽셀 주변(local) 배경과 비교 (box blur로 local 배경 추정)
+// 3) 연결된 픽셀 덩어리(connected component) 중 가장 큰 것 = 실제 글씨로 판단
+//    (줄노트 가로줄 같은 가늘고 흩어진 잡음은 자연스럽게 걸러짐)
+// 4) 탐지된 영역 좌표를 원본 고해상도 사진 좌표로 환산해서, 원본에서 직접 잘라
+//    화질 손실 없이 28x28로 축소
+function boxBlur(gray, w, h, radius) {
+  const temp = new Float32Array(w * h);
+  const win = radius * 2 + 1;
+  for (let y = 0; y < h; y++) {
+    const rowOff = y * w;
+    let sum = 0;
+    for (let k = -radius; k <= radius; k++) sum += gray[rowOff + Math.min(w - 1, Math.max(0, k))];
+    temp[rowOff] = sum / win;
+    for (let x = 1; x < w; x++) {
+      sum += gray[rowOff + Math.min(w - 1, x + radius)] - gray[rowOff + Math.max(0, x - radius - 1)];
+      temp[rowOff + x] = sum / win;
+    }
+  }
+  const out = new Float32Array(w * h);
+  for (let x = 0; x < w; x++) {
+    let sum = 0;
+    for (let k = -radius; k <= radius; k++) sum += temp[Math.min(h - 1, Math.max(0, k)) * w + x];
+    out[x] = sum / win;
+    for (let y = 1; y < h; y++) {
+      sum += temp[Math.min(h - 1, y + radius) * w + x] - temp[Math.max(0, y - radius - 1) * w + x];
+      out[y * w + x] = sum / win;
+    }
+  }
+  return out;
+}
+
+function largestComponentBBox(mask, w, h) {
+  const visited = new Uint8Array(w * h);
+  let best = null, bestSize = 0;
+  const stack = new Int32Array(w * h);
+  for (let start = 0; start < w * h; start++) {
+    if (!mask[start] || visited[start]) continue;
+    let sp = 0;
+    stack[sp++] = start;
+    visited[start] = 1;
+    let minX = w, maxX = -1, minY = h, maxY = -1, size = 0;
+    while (sp > 0) {
+      const idx = stack[--sp];
+      const cx = idx % w, cy = (idx - cx) / w;
+      size++;
+      if (cx < minX) minX = cx; if (cx > maxX) maxX = cx;
+      if (cy < minY) minY = cy; if (cy > maxY) maxY = cy;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = cx + dx, ny = cy + dy;
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+          const nidx = ny * w + nx;
+          if (mask[nidx] && !visited[nidx]) { visited[nidx] = 1; stack[sp++] = nidx; }
+        }
+      }
+    }
+    if (size > bestSize) { bestSize = size; best = { minX, maxX, minY, maxY }; }
+  }
+  return best;
+}
+
+function preprocessWithBoundingBox(imgEl, invert) {
+  const iw = imgEl.naturalWidth || imgEl.width;
+  const ih = imgEl.naturalHeight || imgEl.height;
+
+  // 탐지용 축소 이미지 (성능 + 노이즈 완화 목적, 최종 크롭은 원본에서 함)
+  const maxDim = 400;
+  const scale = Math.min(1, maxDim / Math.max(iw, ih));
+  const w = Math.max(1, Math.round(iw * scale));
+  const h = Math.max(1, Math.round(ih * scale));
+
+  const work = document.createElement('canvas');
+  work.width = w; work.height = h;
+  const wctx = work.getContext('2d');
+  wctx.drawImage(imgEl, 0, 0, w, h);
+  const data = wctx.getImageData(0, 0, w, h).data;
+
+  const gray = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+    gray[i] = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  }
+
+  // local 배경(주변 평균) 추정 → 그림자처럼 천천히 변하는 밝기는 무시되고
+  // 글씨처럼 좁은 영역에서 갑자기 어두워지는/밝아지는 부분만 잡힘
+  const radius = Math.max(8, Math.round(Math.min(w, h) / 11));
+  const localBg = boxBlur(gray, w, h, radius);
+
+  const threshold = 0.12;
+  const mask = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    const diff = invert ? (localBg[i] - gray[i]) : (gray[i] - localBg[i]);
+    if (diff > threshold) mask[i] = 1;
+  }
+
+  const comp = largestComponentBBox(mask, w, h);
+  let minX, maxX, minY, maxY;
+  if (!comp) { minX = 0; minY = 0; maxX = w - 1; maxY = h - 1; }
+  else { ({ minX, maxX, minY, maxY } = comp); }
+
+  // 원본 고해상도 사진 좌표로 환산
+  const invScale = 1 / scale;
+  const ominX = minX * invScale, omaxX = maxX * invScale;
+  const ominY = minY * invScale, omaxY = maxY * invScale;
+
+  const padX = (omaxX - ominX) * 0.15 + 6;
+  const padY = (omaxY - ominY) * 0.15 + 6;
+  const cropX = Math.max(0, ominX - padX);
+  const cropY = Math.max(0, ominY - padY);
+  const cropX2 = Math.min(iw, omaxX + padX);
+  const cropY2 = Math.min(ih, omaxY + padY);
+  const cropW = cropX2 - cropX, cropH = cropY2 - cropY;
+  const side = Math.max(cropW, cropH);
+  const offsetX = (side - cropW) / 2, offsetY = (side - cropH) / 2;
+
+  // 배경색 추정(축소 이미지 테두리 평균)
+  let borderSum = 0, borderCount = 0;
+  for (let x = 0; x < w; x++) { borderSum += gray[x] + gray[(h - 1) * w + x]; borderCount += 2; }
+  for (let y = 0; y < h; y++) { borderSum += gray[y * w] + gray[y * w + (w - 1)]; borderCount += 2; }
+  const bgVal = borderSum / borderCount;
+
+  // 정사각형 캔버스에 배경색 채우고, 원본 이미지에서 직접 크롭→고화질 축소
+  const squareCanvas = document.createElement('canvas');
+  squareCanvas.width = Math.round(side); squareCanvas.height = Math.round(side);
+  const sctx = squareCanvas.getContext('2d');
+  const bgByte = Math.round(bgVal * 255);
+  sctx.fillStyle = `rgb(${bgByte},${bgByte},${bgByte})`;
+  sctx.fillRect(0, 0, squareCanvas.width, squareCanvas.height);
+  sctx.drawImage(imgEl, cropX, cropY, cropW, cropH, offsetX, offsetY, cropW, cropH);
+
+  // MNIST 관례: 28x28 중 안쪽 20x20에 숫자를 채우고 둘레 4px는 여백
+  const finalCanvas = document.getElementById('canvas');
+  finalCanvas.width = 28; finalCanvas.height = 28;
+  const fctx = finalCanvas.getContext('2d');
+  fctx.fillStyle = `rgb(${bgByte},${bgByte},${bgByte})`;
+  fctx.fillRect(0, 0, 28, 28);
+  const inner = 20, margin = 4;
+  fctx.drawImage(squareCanvas, 0, 0, squareCanvas.width, squareCanvas.height, margin, margin, inner, inner);
+
+  const finalData = fctx.getImageData(0, 0, 28, 28).data;
+  const pixels = new Float32Array(28 * 28);
+  for (let i = 0; i < 28 * 28; i++) {
+    const r = finalData[i * 4], g = finalData[i * 4 + 1], b = finalData[i * 4 + 2];
+    let v = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    if (invert) v = 1 - v;
+    pixels[i] = (v - MEAN) / STD;
+  }
+  return pixels;
+}
+
+function runInference(imgEl) {
+  if (!model) {
+    document.getElementById('status').textContent = '⏳ 모델 아직 로딩 중...';
+    return;
+  }
+  document.getElementById('status').textContent = '🤖 추론 중...';
+  const invert = document.getElementById('invert-toggle').checked;
+  const pixels = preprocessWithBoundingBox(imgEl, invert);
+
+  const inputTensor = tf.tensor4d(pixels, [1, 28, 28, 1]);
+  const predTensor = model.predict(inputTensor);
+  const probs = predTensor.dataSync();
+  inputTensor.dispose();
+  predTensor.dispose();
+
+  // 결과 정렬
+  const ranked = Array.from(probs).map((p, i) => ({ digit: i, prob: p }))
+                       .sort((a, b) => b.prob - a.prob);
+  const top = ranked[0];
+
+  document.getElementById('status').textContent =
+    `추론 완료 · 확신도 ${(top.prob * 100).toFixed(1)}%`;
+  showResult(ranked);
+}
+
+function showResult(ranked) {
+  const card = document.getElementById('result-card');
+  card.classList.add('visible');
+
+  const top = ranked[0];
+  document.getElementById('result-digit').textContent = top.digit;
+  document.getElementById('result-label').textContent =
+    `예측: ${top.digit}번 · ${(top.prob * 100).toFixed(1)}% 확률`;
+
+  const bars = document.getElementById('bars');
+  bars.innerHTML = '';
+  for (let i = 0; i <= 9; i++) {
+    const item = ranked.find(r => r.digit === i);
+    const pct = (item.prob * 100).toFixed(1);
+    const isTop = (i === top.digit);
+    bars.innerHTML += `
+      <div class="bar-row">
+        <span class="bar-digit">${i}</span>
+        <div class="bar-bg">
+          <div class="bar-fill ${isTop ? 'top' : ''}" style="width:${pct}%"></div>
+        </div>
+        <span class="bar-pct">${pct}%</span>
+      </div>`;
+  }
+}
+</script>
+</body>
+</html>
